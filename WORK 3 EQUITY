@@ -1,0 +1,138 @@
+!pip install yfinance --quiet
+
+
+# Definir tickers y periodo
+tickers = ['AAPL', 'KO', 'PFE', 'CAT', 'DIS']
+start_date = '1990-01-01'
+end_date = '2025-04-30'
+
+# Descargar precios mensuales (sin agrupar por 'ticker')
+price_data = yf.download(tickers, start=start_date, end=end_date, interval='1mo', auto_adjust=True)
+
+# Usar solo la columna 'Close'
+adj_close = price_data['Close']
+
+# Ver las primeras filas
+adj_close.head()
+
+# Descargamos los precios mensuales de las cinco empresas Apple, Coca-Cola, Pfizer, Caterpillar y Disney usando yfinance.
+
+import numpy as np
+
+# Calcular los retornos logarítmicos mensuales
+returns = np.log(adj_close / adj_close.shift(1))
+
+# Mostrar las primeras filas
+returns.head()
+
+
+# Calculamos los retornos logarítmicos mensuales como log(P_t / P_{t-1}). dado  que entrega simpleza para analizar y propiedades estadísticas.
+
+
+import statsmodels.api as sm
+
+# Calcular retornos mensuales de cada acción (variación porcentual)
+returns = adj_close.pct_change().dropna()
+
+# Unir retornos con factores Fama-French por fecha
+merged = returns.merge(ff_data[['Date', 'Mkt-RF', 'RF']], left_index=True, right_on='Date')
+merged.set_index('Date', inplace=True)
+
+# Crear estructura para guardar betas
+betas = {}
+
+# Calcular beta para cada acción
+for stock in ['AAPL', 'KO', 'PFE', 'CAT', 'DIS']:
+    Ri_minus_Rf = merged[stock] * 100 - merged['RF']  # convertir retorno a porcentaje
+    X = merged['Mkt-RF']
+    X = sm.add_constant(X)
+    model = sm.OLS(Ri_minus_Rf, X).fit()
+    betas[stock] = model.params['Mkt-RF']
+
+# Mostrar betas
+print("Betas estimados con el modelo de mercado:")
+for stock, beta in betas.items():
+    print(f"{stock}: {beta:.4f}")
+
+# Estos son los coeficientes beta de las cinco acciones utilizando el modelo de mercado(Relación entre exceso de retorno de cada acción con el exceso de retorno del mercado). Los valores b indican la sensibilidad del retorno de cada acción respecto al mercado: AAPL y CAT tienen beta > 1, lo que implica mayor volatilidad relativa al mercado. KO y PFE  beta < 1, indicando menor riesgo sistemático.
+
+import pandas as pd
+import statsmodels.api as sm
+
+# Diccionario para almacenar retornos anormales
+abnormal_returns = {}
+
+# Estimar AR para cada acción
+for stock in ['AAPL', 'KO', 'PFE', 'CAT', 'DIS']:
+    # Retorno excedente de la acción
+    Ri_minus_Rf = merged[stock] * 100 - merged['RF']
+
+    # Variable independiente: Mkt-RF
+    X = merged['Mkt-RF']
+    X = sm.add_constant(X)
+
+    # Ajustar modelo de mercado: Ri - Rf = alpha + beta * (Rm - Rf)
+    model = sm.OLS(Ri_minus_Rf, X).fit()
+
+    # Calcular retorno esperado
+    expected_return = model.predict(X)
+
+    # Calcular retorno anormal
+    AR = Ri_minus_Rf - expected_return
+    abnormal_returns[stock] = AR
+
+# Convertir a DataFrame para visualizar
+abnormal_df = pd.DataFrame(abnormal_returns, index=merged.index)
+
+# Mostrar primeras filas
+abnormal_df.head()
+
+# Calculamos los retornos anormales,haciendo la comparativa entre el retorno real excedente con el retorno esperado. Esto para identificar períodos en los que las acciones se comportaron distinta a lo visto anteriormente por su riesgo sistemático.
+
+import statsmodels.api as sm
+
+# Crear un diccionario para guardar los resultados de la regresión CAPM
+capm_results = {}
+
+# Repetir para cada acción
+for stock in ['AAPL', 'KO', 'PFE', 'CAT', 'DIS']:
+    y = merged[stock] * 100 - merged['RF']  # Retorno en exceso (ri - rf)
+    X = merged['Mkt-RF']  # PRMt
+    X = sm.add_constant(X)  # Agregar constante (intercepto alpha)
+
+    model = sm.OLS(y, X).fit()
+    capm_results[stock] = model
+
+    print(f"Resultados CAPM para {stock}:")
+    print(model.summary())
+    print("\n" + "="*80 + "\n")
+
+# Resultados del Modelo CAPM
+
+La regresión CAPM estimó el **α (intercepto)** y **β (sensibilidad al mercado)** de cada acción. Los resultados obtenidos son los siguientes:
+
+1. **AAPL**:
+   - **α** = 1.2035 (**p-valor** = 0.021): Se observa un retorno anormal positivo y significativo.
+   - **β** = 1.2788: AAPL tiene una alta volatilidad respecto al mercado, con un beta mayor a 1.
+
+  **KO**:
+   - **α** = 0.4210 (**p-valor** = 0.100): No se rechaza la hipótesis de que α = 0, por lo que no hay evidencia de retorno anormal.
+   - **β** = 0.5404: KO es menos volátil que el mercado, con un beta menor a 1.
+
+  **PFE**:
+   - **α** = 0.3069 (**p-valor** = 0.303): No hay evidencia de retorno anormal significativo.
+   - **β** = 0.6564: PFE tiene una volatilidad moderada, menos que el mercado.
+
+  **CAT**:
+   - **α** = 0.4035 (**p-valor** = 0.256): No hay evidencia significativa de retorno anormal.
+   - **β** = 1.2016: CAT tiene una volatilidad mayor que el mercado.
+
+ **DIS**:
+   - **α** = -0.1131 (**p-valor** = 0.697): No hay evidencia de retorno anormal, y el valor de α es negativo.
+   - **β** = 1.1352: DIS muestra una volatilidad superior al mercado.
+
+
+
+- **AAPL** es la única acción que presenta un retorno anormal estadísticamente significativo bajo el modelo CAPM.
+- Las demás acciones (KO, PFE, CAT y DIS) no muestran evidencia de retornos anormales, con sus respectivos valores de α no siendo significativamente diferentes de 0.
+#
